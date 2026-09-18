@@ -47,6 +47,7 @@ macro_rules! serve_fn {
                     cfg.py_threads_idle_timeout,
                     rtpyloop,
                     metrics.1.clone(),
+                    cfg.ws_config,
                 )
             });
             let rth = rt.handler();
@@ -172,7 +173,14 @@ macro_rules! serve_fn {
                 let py_loop = py_loop.clone();
 
                 let thread = std::thread::spawn(move || {
-                    let rt = crate::runtime::init_runtime_st(1, 0, 0, py_loop, None);
+                    let rt = crate::runtime::init_runtime_st(
+                        1,
+                        0,
+                        0,
+                        py_loop,
+                        None,
+                        crate::ws::WsKeepaliveConfig::disabled(),
+                    );
                     let local = tokio::task::LocalSet::new();
 
                     #[cfg(not(Py_GIL_DISABLED))]
@@ -215,6 +223,7 @@ macro_rules! serve_fn {
                 let py_threads = cfg.py_threads;
                 let py_threads_idle_timeout = cfg.py_threads_idle_timeout;
                 let backpressure = cfg.backpressure;
+                let ws_config = cfg.ws_config;
                 let metrics = metrics.clone();
                 let ctx = ctx.clone();
                 let acceptor = acceptor.clone();
@@ -230,6 +239,7 @@ macro_rules! serve_fn {
                         py_threads_idle_timeout,
                         py_loop,
                         metrics.1.clone(),
+                        ws_config,
                     );
                     let rth = rt.handler();
                     let wrk = crate::workers::Worker::new(ctx, acceptor, handler, rth, target, metrics.0);
@@ -314,6 +324,7 @@ macro_rules! serve_fn {
             let py_threads = cfg.py_threads;
             let py_threads_idle_timeout = cfg.py_threads_idle_timeout;
             let backpressure = cfg.backpressure;
+            let ws_config = cfg.ws_config;
 
             let (stx, srx) = tokio::sync::watch::channel(false);
             let py_loop = Arc::new(event_loop.clone().unbind());
@@ -325,6 +336,7 @@ macro_rules! serve_fn {
                     py_threads_idle_timeout,
                     py_loop,
                     metrics.1.clone(),
+                    ws_config,
                 );
                 let rth = rt.handler();
                 let wrk = crate::workers::Worker::new(ctx, acceptor, handler, rth, target, metrics.0);

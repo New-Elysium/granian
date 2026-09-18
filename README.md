@@ -152,6 +152,13 @@ Options:
                                   default: (auto)]
   --ws / --no-ws                  Enable websockets handling  [env var:
                                   GRANIAN_WEBSOCKETS; default: (enabled)]
+  --ws-ping-interval FLOAT RANGE  Sets an interval (in seconds) for WebSocket
+                                  Ping frames to be sent to keep a connection
+                                  alive  [env var: GRANIAN_WS_PING_INTERVAL;
+                                  x>=0.0]
+  --ws-ping-timeout FLOAT RANGE   Sets a timeout (in seconds) for receiving a
+                                  Pong response to a WebSocket Ping frame
+                                  [env var: GRANIAN_WS_PING_TIMEOUT; x>=0.0]
   --workers INTEGER RANGE         Number of worker processes  [env var:
                                   GRANIAN_WORKERS; default: 1; x>=1]
   --blocking-threads INTEGER RANGE

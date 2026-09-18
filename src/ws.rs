@@ -1,3 +1,4 @@
+use futures::sink::SinkExt;
 use http_body_util::BodyExt;
 use hyper::{
     Request, Response, StatusCode,
@@ -8,25 +9,185 @@ use pin_project_lite::pin_project;
 use std::{
     future::Future,
     pin::Pin,
+    sync::{
+        Arc, Mutex as StdMutex,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
     task::{Context, Poll},
+    time::Duration,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
         Error as TungsteniteError, Message,
         error::ProtocolError,
         handshake::derive_accept_key,
-        protocol::{Role, WebSocketConfig},
+        protocol::{
+            Role, WebSocketConfig,
+            frame::{CloseFrame, coding::CloseCode},
+        },
     },
 };
 
 use super::http::HTTPResponse;
 use super::utils::header_contains_value;
+use crate::runtime::{Runtime, RuntimeRef};
 
 pub(crate) type WSStream = WebSocketStream<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
 pub(crate) type WSRxStream = futures::stream::SplitStream<WSStream>;
 pub(crate) type WSTxStream = futures::stream::SplitSink<WSStream, Message>;
+
+static WS_PING_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WsKeepaliveConfig {
+    interval: Option<Duration>,
+    timeout: Option<Duration>,
+}
+
+impl WsKeepaliveConfig {
+    pub const fn disabled() -> Self {
+        Self {
+            interval: None,
+            timeout: None,
+        }
+    }
+
+    pub fn new(interval: Option<f64>, timeout: Option<f64>) -> Self {
+        let sanitize = |value: Option<f64>| value.filter(|v| v.is_finite() && *v > 0.0).map(Duration::from_secs_f64);
+        Self {
+            interval: sanitize(interval),
+            timeout: sanitize(timeout),
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.interval.is_some()
+    }
+}
+
+pub(crate) struct WsKeepalive {
+    pending: StdMutex<Option<[u8; 4]>>,
+    pong: Notify,
+}
+
+impl WsKeepalive {
+    fn new() -> Self {
+        Self {
+            pending: StdMutex::new(None),
+            pong: Notify::new(),
+        }
+    }
+
+    pub fn on_pong(&self, payload: &[u8]) {
+        if payload.len() != 4 {
+            return;
+        }
+        let mut pending = self.pending.lock().unwrap();
+        if pending.as_ref().is_some_and(|expected| expected.as_slice() == payload) {
+            *pending = None;
+            drop(pending);
+            self.pong.notify_one();
+        }
+    }
+}
+
+pub(crate) fn spawn_keepalive(
+    rt: &RuntimeRef,
+    config: WsKeepaliveConfig,
+    tx: Arc<AsyncMutex<Option<WSTxStream>>>,
+    closed: Arc<AtomicBool>,
+    disconnect_guard: Arc<Notify>,
+) -> Option<Arc<WsKeepalive>> {
+    if !config.enabled() {
+        return None;
+    }
+    let keepalive = Arc::new(WsKeepalive::new());
+    let ka = keepalive.clone();
+    rt.spawn(async move {
+        run_keepalive(config, tx, closed, disconnect_guard, ka).await;
+    });
+    Some(keepalive)
+}
+
+async fn run_keepalive(
+    config: WsKeepaliveConfig,
+    tx: Arc<AsyncMutex<Option<WSTxStream>>>,
+    closed: Arc<AtomicBool>,
+    disconnect_guard: Arc<Notify>,
+    keepalive: Arc<WsKeepalive>,
+) {
+    let Some(interval) = config.interval else {
+        return;
+    };
+
+    loop {
+        tokio::select! {
+            biased;
+            () = tokio::time::sleep(interval) => {},
+            () = disconnect_guard.notified() => return,
+        }
+        if closed.load(Ordering::Acquire) {
+            return;
+        }
+
+        let payload = WS_PING_COUNTER.fetch_add(1, Ordering::Relaxed).to_be_bytes();
+        *keepalive.pending.lock().unwrap() = Some(payload);
+
+        {
+            let mut guard = tx.lock().await;
+            match guard.as_mut() {
+                Some(stream) => {
+                    if stream.send(Message::Ping(payload.to_vec().into())).await.is_err() {
+                        return;
+                    }
+                }
+                None => return,
+            }
+        }
+
+        let Some(timeout) = config.timeout else {
+            continue;
+        };
+
+        let sleep = tokio::time::sleep(timeout);
+        tokio::pin!(sleep);
+        loop {
+            tokio::select! {
+                biased;
+                () = keepalive.pong.notified() => {
+                    if keepalive.pending.lock().unwrap().is_none() {
+                        break;
+                    }
+                },
+                () = &mut sleep => {
+                    keepalive.pending.lock().unwrap().take();
+                    if closed.load(Ordering::Acquire) {
+                        return;
+                    }
+                    log::info!("WebSocket keepalive ping timeout");
+                    closed.store(true, Ordering::Release);
+                    {
+                        let mut guard = tx.lock().await;
+                        if let Some(stream) = guard.as_mut() {
+                            let _ = stream
+                                .send(Message::Close(Some(CloseFrame {
+                                    code: CloseCode::Error,
+                                    reason: "keepalive ping timeout".into(),
+                                })))
+                                .await;
+                            let _ = stream.close().await;
+                        }
+                    }
+                    disconnect_guard.notify_one();
+                    return;
+                },
+                () = disconnect_guard.notified() => return,
+            }
+        }
+    }
+}
 
 pin_project! {
     #[derive(Debug)]
