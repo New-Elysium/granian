@@ -10,7 +10,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        Arc, Mutex as StdMutex,
+        Arc,
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
     task::{Context, Poll},
@@ -40,6 +40,16 @@ pub(crate) type WSTxStream = futures::stream::SplitSink<WSStream, Message>;
 
 static WS_PING_COUNTER: AtomicU32 = AtomicU32::new(0);
 
+#[inline]
+fn next_ping_id() -> u32 {
+    loop {
+        let id = WS_PING_COUNTER.fetch_add(1, Ordering::Relaxed);
+        if id != 0 {
+            return id;
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WsKeepaliveConfig {
     interval: Option<Duration>,
@@ -68,26 +78,45 @@ impl WsKeepaliveConfig {
 }
 
 pub(crate) struct WsKeepalive {
-    pending: StdMutex<Option<[u8; 4]>>,
+    // `0` means no ping is currently in flight; ping ids start at `1`.
+    pending: AtomicU32,
     pong: Notify,
 }
 
 impl WsKeepalive {
     fn new() -> Self {
         Self {
-            pending: StdMutex::new(None),
+            pending: AtomicU32::new(0),
             pong: Notify::new(),
         }
     }
 
+    #[inline]
+    fn track(&self, id: u32) {
+        self.pending.store(id, Ordering::Release);
+    }
+
+    #[inline]
+    fn clear(&self) {
+        self.pending.store(0, Ordering::Release);
+    }
+
+    #[inline]
+    fn is_pending(&self) -> bool {
+        self.pending.load(Ordering::Acquire) != 0
+    }
+
     pub fn on_pong(&self, payload: &[u8]) {
-        if payload.len() != 4 {
+        let Ok(bytes) = <[u8; 4]>::try_from(payload) else {
             return;
-        }
-        let mut pending = self.pending.lock().unwrap();
-        if pending.as_ref().is_some_and(|expected| expected.as_slice() == payload) {
-            *pending = None;
-            drop(pending);
+        };
+        let id = u32::from_be_bytes(bytes);
+        if id != 0
+            && self
+                .pending
+                .compare_exchange(id, 0, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
             self.pong.notify_one();
         }
     }
@@ -132,8 +161,9 @@ async fn run_keepalive(
             return;
         }
 
-        let payload = WS_PING_COUNTER.fetch_add(1, Ordering::Relaxed).to_be_bytes();
-        *keepalive.pending.lock().unwrap() = Some(payload);
+        let id = next_ping_id();
+        keepalive.track(id);
+        let payload = id.to_be_bytes();
 
         {
             let mut guard = tx.lock().await;
@@ -157,12 +187,12 @@ async fn run_keepalive(
             tokio::select! {
                 biased;
                 () = keepalive.pong.notified() => {
-                    if keepalive.pending.lock().unwrap().is_none() {
+                    if !keepalive.is_pending() {
                         break;
                     }
                 },
                 () = &mut sleep => {
-                    keepalive.pending.lock().unwrap().take();
+                    keepalive.clear();
                     if closed.load(Ordering::Acquire) {
                         return;
                     }
