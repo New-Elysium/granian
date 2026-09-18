@@ -555,6 +555,17 @@ Since altering the request scope based on values from headers is security-sensit
 
 The `trusted_hosts` argument accepts either a string or a list of strings, where valid values are IP addresses (for example, `192.0.2.1` or `fd12:3456:789a::1`) and CIDR ranges (for example, `192.0.2.0/24` or `2001:db8:abcd::/48`). The special *catch-all value* `"*"` (or `["*"]`) will make Granian trust all hosts and effectively disable the security check.
 
+### Websockets
+
+Granian supports WebSocket connections on HTTP/1.1 for ASGI and RSGI applications (they're not available on WSGI or HTTP/2). WebSocket handling is enabled by default and can be turned off with `--no-ws`.
+
+Granian can additionally send WebSocket keepalive frames by sending periodic WebSocket Ping frames, closing connections whose peer does not answer with a matching Pong. This is useful to detect dead/zombie connections and to prevent intermediary proxies from dropping idle sockets. Two settings control this behaviour:
+
+- `--ws-ping-interval`: the number of seconds between Ping frames. A value of `0` – or leaving the default `None` – disables server-initiated pings entirely.
+- `--ws-ping-timeout`: the number of seconds to wait for a Pong response before closing the connection with close code `1011` and reason `keepalive ping timeout`. A value of `0` (or `None`) keeps sending pings without ever timing out.
+
+Both settings default to `None` (disabled), so the keepalive is opt-in. These map to uvicorn's `--ws-ping-interval` and `--ws-ping-timeout` options.
+
 ## Free-threaded Python
 
 > **Warning:** free-threaded Python support is still experimental and highly discouraged in *production environments*.
