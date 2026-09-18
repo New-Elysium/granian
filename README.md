@@ -559,7 +559,7 @@ The `trusted_hosts` argument accepts either a string or a list of strings, where
 
 Granian supports WebSocket connections on HTTP/1.1 for ASGI and RSGI applications (they're not available on WSGI or HTTP/2). WebSocket handling is enabled by default and can be turned off with `--no-ws`.
 
-Granian can additionally send WebSocket keepalive frames by sending periodic WebSocket Ping frames, closing connections whose peer does not answer with a matching Pong. This is useful to detect dead/zombie connections and to prevent intermediary proxies from dropping idle sockets. Two settings control this behaviour:
+Granian can additionally send periodic WebSocket Ping frames to connected clients, closing the connection when a client does not answer with a matching Pong. This is useful to detect dead/zombie connections and to prevent intermediary proxies from dropping idle sockets. Two settings control this behaviour:
 
 - `--ws-ping-interval`: the number of seconds between Ping frames. A value of `0` – or leaving the default `None` – disables server-initiated pings entirely.
 - `--ws-ping-timeout`: the number of seconds to wait for a Pong response before closing the connection with close code `1011` and reason `keepalive ping timeout`. A value of `0` (or `None`) keeps sending pings without ever timing out.
