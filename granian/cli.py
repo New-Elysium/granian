@@ -138,7 +138,7 @@ def option(*param_decls: str, cls: type[click.Option] | None = None, **attrs: An
 @option(
     '--ws-ping-timeout',
     type=click.FloatRange(min=0.0),
-    default=None,
+    default=60.0,
     help='Sets a timeout (in seconds) for receiving a Pong response to a WebSocket Ping frame',
 )
 @option('--workers', type=click.IntRange(1), default=1, help='Number of worker processes')

@@ -158,7 +158,8 @@ Options:
                                   x>=0.0]
   --ws-ping-timeout FLOAT RANGE   Sets a timeout (in seconds) for receiving a
                                   Pong response to a WebSocket Ping frame
-                                  [env var: GRANIAN_WS_PING_TIMEOUT; x>=0.0]
+                                  [env var: GRANIAN_WS_PING_TIMEOUT; default:
+                                  60.0; x>=0.0]
   --workers INTEGER RANGE         Number of worker processes  [env var:
                                   GRANIAN_WORKERS; default: 1; x>=1]
   --blocking-threads INTEGER RANGE
@@ -562,9 +563,9 @@ Granian supports WebSocket connections on HTTP/1.1 for ASGI and RSGI application
 Granian can additionally send periodic WebSocket Ping frames to connected clients, closing the connection when a client does not answer with a matching Pong. This is useful to detect dead/zombie connections and to prevent intermediary proxies from dropping idle sockets. Two settings control this behaviour:
 
 - `--ws-ping-interval`: the number of seconds between Ping frames. A value of `0` – or leaving the default `None` – disables server-initiated pings entirely.
-- `--ws-ping-timeout`: the number of seconds to wait for a Pong response before closing the connection with close code `1011` and reason `keepalive ping timeout`. A value of `0` (or `None`) keeps sending pings without ever timing out.
+- `--ws-ping-timeout`: the number of seconds to wait for a Pong response before closing the connection with close code `1011` and reason `keepalive ping timeout`. Defaults to `60` seconds; a value of `0` (or `None`) keeps sending pings without ever timing out.
 
-Both settings default to `None` (disabled), so the keepalive is opt-in. These map to uvicorn's `--ws-ping-interval` and `--ws-ping-timeout` options.
+Server-initiated pings are opt-in (`--ws-ping-interval` defaults to `None`); when pings are enabled, the Pong timeout defaults to `60` seconds. These settings map to uvicorn's `--ws-ping-interval` and `--ws-ping-timeout` options.
 
 ## Free-threaded Python
 

@@ -106,7 +106,7 @@ class AbstractServer(Generic[WT]):
         http: HTTPModes = HTTPModes.auto,
         websockets: bool = True,
         ws_ping_interval: float | None = None,
-        ws_ping_timeout: float | None = None,
+        ws_ping_timeout: float | None = 60.0,
         backlog: int = 1024,
         backpressure: int | None = None,
         http1_settings: HTTP1Settings | None = None,

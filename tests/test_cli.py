@@ -7,7 +7,7 @@ from granian.cli import Duration, cli
 def test_ws_ping_options_exposed() -> None:
     params = {param.name: param for param in cli.params}
     assert params['ws_ping_interval'].default is None
-    assert params['ws_ping_timeout'].default is None
+    assert params['ws_ping_timeout'].default == 60.0
     assert params['ws_ping_interval'].show_envvar
     assert params['ws_ping_timeout'].show_envvar
 
