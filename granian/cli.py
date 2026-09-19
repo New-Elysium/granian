@@ -133,13 +133,13 @@ def option(*param_decls: str, cls: type[click.Option] | None = None, **attrs: An
     '--ws-ping-interval',
     type=click.FloatRange(min=0.0),
     default=None,
-    help='Sets an interval (in seconds) for WebSocket Ping frames to be sent to keep a connection alive',
+    help='Sets an interval (in seconds) for WebSocket Ping frames to be sent to keep a connection alive (0 == disabled)',
 )
 @option(
     '--ws-ping-timeout',
     type=click.FloatRange(min=0.0),
     default=60.0,
-    help='Sets a timeout (in seconds) for receiving a Pong response to a WebSocket Ping frame',
+    help='Sets a timeout (in seconds) for receiving a Pong response to a WebSocket Ping frame (0 == disabled)',
 )
 @option('--workers', type=click.IntRange(1), default=1, help='Number of worker processes')
 @option(
